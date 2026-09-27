@@ -1638,26 +1638,72 @@ bool wifi_reconnect_bypass() {
     return true;
   }
 #endif
-  uint8_t wifi_autoreconnect_cnt = 0;
-#ifdef ESP32
-  while (WiFi.status() != WL_CONNECTED && wifi_autoreconnect_cnt < maxConnectionRetryNetwork) {
-#else
-  while (WiFi.waitForConnectResult() != WL_CONNECTED && wifi_autoreconnect_cnt < maxConnectionRetryNetwork) {
-#endif
-    THEENGS_LOG_NOTICE(F("Attempting Wifi connection with saved AP: %d" CR), wifi_autoreconnect_cnt);
 
-    WiFi.begin();
+  uint8_t wifi_autoreconnect_cnt = 0;
+
+#ifdef ESP32
+
+  // Already connected
+  if (WiFi.status() == WL_CONNECTED) {
+    return true;
+  }
+
+  // Start a single connection attempt.
+  // ESP32-C3 does not like repeated WiFi.begin() calls while STA is connecting.
+  WiFi.begin();
+
 #if defined(WifiGMode) || defined(WifiPower)
-    setESPWifiProtocolTxPower();
+  setESPWifiProtocolTxPower();
 #endif
+
+  while (WiFi.status() != WL_CONNECTED &&
+         wifi_autoreconnect_cnt < maxConnectionRetryNetwork) {
+
+    THEENGS_LOG_NOTICE(
+        F("Waiting for Wifi connection with saved AP: %d" CR),
+        wifi_autoreconnect_cnt);
+
     delay(1000);
     wifi_autoreconnect_cnt++;
   }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    return true;
+  }
+
+  // Stop the failed STA attempt before WiFiManager tries to start its AP.
+  // Keep the saved credentials.
+  WiFi.disconnect(false, false);
+  delay(200);
+
+  return false;
+
+#else
+
+  while (WiFi.waitForConnectResult() != WL_CONNECTED &&
+         wifi_autoreconnect_cnt < maxConnectionRetryNetwork) {
+
+    THEENGS_LOG_NOTICE(
+        F("Attempting Wifi connection with saved AP: %d" CR),
+        wifi_autoreconnect_cnt);
+
+    WiFi.begin();
+
+#if defined(WifiGMode) || defined(WifiPower)
+    setESPWifiProtocolTxPower();
+#endif
+
+    delay(1000);
+    wifi_autoreconnect_cnt++;
+  }
+
   if (wifi_autoreconnect_cnt < maxConnectionRetryNetwork) {
     return true;
   } else {
     return false;
   }
+
+#endif
 }
 
 void setOTA() {
