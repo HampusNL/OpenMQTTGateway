@@ -1338,7 +1338,8 @@ void updateAndHandleLEDsTask() {
 void setup() {
   //Launch serial for debugging purposes
   Serial.begin(SERIAL_BAUD);
-  Log.begin(LOG_LEVEL, &Serial);
+  delay(3000);  // Give native USB CDC time to reconnect
+  Log.begin(LOG_LEVEL, &Serial);  
   THEENGS_LOG_NOTICE(F(CR "************* WELCOME TO OpenMQTTGateway **************" CR));
 #if defined(TRIGGER_GPIO) && !defined(ESPWifiManualSetup)
   pinMode(TRIGGER_GPIO, INPUT_PULLUP);
@@ -1432,7 +1433,7 @@ void setup() {
   setupWiFiFromBuild();
 #else
   WiFi.setHostname(gateway_name);
-  WiFi.mode(WIFI_STA);
+  //WiFi.mode(WIFI_STA);
   if (loadConfigFromFlash()) { // Config present
     THEENGS_LOG_NOTICE(F("Config loaded from flash" CR));
 #  ifdef ESP32_ETHERNET
@@ -1650,6 +1651,15 @@ bool wifi_reconnect_bypass() {
 
   // Start a single connection attempt.
   // ESP32-C3 does not like repeated WiFi.begin() calls while STA is connecting.
+  // Fresh/erased device: don't start STA when no WiFi credentials exist.
+// Fresh/erased device: don't start STA when no WiFi credentials exist.
+  if (WiFi.SSID().length() == 0) {
+    THEENGS_LOG_NOTICE(F("No saved WiFi credentials, starting config portal" CR));
+    return false;
+  }
+
+  // Start a single connection attempt.
+  // ESP32-C3 does not like repeated WiFi.begin() calls while STA is connecting.
   WiFi.begin();
 
 #if defined(WifiGMode) || defined(WifiPower)
@@ -1673,8 +1683,8 @@ bool wifi_reconnect_bypass() {
 
   // Stop the failed STA attempt before WiFiManager tries to start its AP.
   // Keep the saved credentials.
-  WiFi.disconnect(false, false);
-  delay(200);
+  WiFi.disconnect(true, false);
+  delay(500);
 
   return false;
 
@@ -2387,7 +2397,28 @@ void setupWiFiManager() {
     //fetches ssid and pass and tries to connect
     //if it does not connect it starts an access point with the specified name
     //and goes into a blocking loop awaiting configuration
-    if (!wifiManager.autoConnect(WifiManager_ssid, ota_pass)) {
+    //if (!wifiManager.autoConnect(WifiManager_ssid, ota_pass)) {
+
+    WiFi.mode(WIFI_AP);
+
+    bool apStarted = WiFi.softAP(WifiManager_ssid, ota_pass);
+
+    Serial.printf("OMG DIRECT AP START: %s\n", apStarted ? "OK" : "FAILED");
+    Serial.printf("OMG DIRECT AP IP: %s\n", WiFi.softAPIP().toString().c_str());
+    Serial.printf("OMG DIRECT AP MODE: %d\n", WiFi.getMode());
+
+    Serial.println("WAITING 15 SECONDS BEFORE STARTING WEB PORTAL");
+    delay(15000);
+
+    wifiManager.setConfigPortalBlocking(false);
+    wifiManager.startWebPortal();
+
+    while (WiFi.status() != WL_CONNECTED) {
+      wifiManager.process();
+      delay(10);
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
       THEENGS_LOG_WARNING(F("failed to connect and hit timeout" CR));
       delay(3000);
 
